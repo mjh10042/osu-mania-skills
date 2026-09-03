@@ -1,5 +1,7 @@
 # mania-skills
 
+참고 : AI Slop 프로그램입니다.
+
 osu!mania 4K 스킬셋 분석기. osu! 공식 서버, mamesosu, 그리고 이 PC의 `scores.db` 세 곳에
 흩어진 기록을 하나로 합쳐서 스킬셋별 레이팅과 단위인정(dan)을 계산하고, 약한 스킬셋을
 겨냥한 맵을 추천합니다.
