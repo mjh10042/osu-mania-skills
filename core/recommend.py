@@ -137,6 +137,13 @@ MAX_DAN_BELOW = 4.0
 # stream and stamina inherently overlap (0.0 is normal there) - so charts are compared
 # against the median of their own band rather than a fixed floor.
 
+# `dominance` is only comparable within one pattern. A jack trainer leaves every other
+# detector well below itself and scores 0.15-0.35; a stream chart cannot, because stream,
+# jumpstream and stamina genuinely co-occur, so the same measure lands at 0.01-0.09 for
+# every stream chart ever written. Shown raw it is a column of near-identical single digits
+# that tells the reader nothing, so what gets displayed is the chart's rank within the
+# candidates instead: "more focused than this share of the alternatives".
+#
 # Dan measures how hard a chart is to clear; MSD measures how hard MinaCalc thinks it is.
 # Dumps and trolljacks inflate MSD without becoming harder to clear, so they sit far
 # above the band's typical ratio. The baseline drifts with dan (~2.9 at dan 8, ~2.0 at
@@ -389,11 +396,18 @@ def recommend(skill: str, player_dan: float | None, played_ids: set[int],
         return (r["dirty"], -len(r["tags"]), -round(r["focus"], 2),
                 abs(r["dan"] - centre))
 
-    # Rate edits are uploaded as ordinary beatmaps, so one song can occupy a whole band as
-    # 0.9x / 1.0x / 1.1x / 1.2x. Only its best-fitting difficulty is kept, and across all
-    # bands at once so the same song cannot appear in two of them.
+    # Focus is turned into a rank over the candidates before anything is picked, so the
+    # number that reaches the screen means the same thing for every pattern.
+    order = sorted(rows, key=lambda r: r["focus"])
+    for i, r in enumerate(order):
+        r["focus"] = (i + 0.5) / len(order) if len(order) > 1 else 1.0
+
+    # Rate edits and re-hosts are uploaded as ordinary beatmaps, so one song can occupy a
+    # whole band as 0.9x / 1.0x / 1.1x / 1.2x. Keyed on the title alone: keying on
+    # (title, creator) let "Makiba" through three times from three different uploaders,
+    # and one difficulty of a song is enough when the point is to train a skill.
     out: list[dict] = []
-    songs: set[tuple] = set()
+    songs: set[str] = set()
     scale = limit / sum(q for *_, q in RECOMMEND_BANDS)
     for name, lo_acc, hi_acc, quota in RECOMMEND_BANDS:
         want = max(1, round(quota * scale))
@@ -402,7 +416,7 @@ def recommend(skill: str, player_dan: float | None, played_ids: set[int],
                           and lo_acc <= r["predicted"] <= hi_acc), key=rank)
         taken = 0
         for r in members:
-            song = (r["title"], r["creator"])
+            song = " ".join(r["title"].casefold().split())
             if song in songs:
                 continue
             songs.add(song)
