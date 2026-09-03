@@ -1,0 +1,17 @@
+# Everything this program learns about whoever is running it. osu!/mamesosu ids, the
+# play history, an index of every beatmap folder on the machine, the rating and dan
+# caches. None of it belongs in a repository - see core/beatmap.cache_dir() for why it
+# lives outside the source tree in the first place.
+cache/
+
+# Build output. `python scripts/release.py` regenerates all of it.
+build/
+dist/
+release/
+
+__pycache__/
+*.py[cod]
+
+# Scratch files from scripts/make_icon.py --preview
+assets/_preview.png
+assets/_check.ico
