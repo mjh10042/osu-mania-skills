@@ -31,7 +31,7 @@ Etterna의 wife3는 ms 단위 오차를 연속 곡선으로 채점하며 미스�
 python app.py
 ```
 
-Python 3.12+ 와 `requests`, `pillow`(아이콘 생성용)가 필요합니다. Windows 전용입니다 —
+Python 3.12+ 와 `requests`, `pillow`(아이콘 생성용)가 필요합니다. Windows 전용이고,
 `scores.db` 파싱과 번들 바이너리가 stable 클라이언트를 전제로 합니다.
 
 배포용 단일 실행 파일:
@@ -67,7 +67,8 @@ python scripts/release.py
 `%LOCALAPPDATA%\mania-skills\cache`에 저장됩니다. 배포물이 정의상 파일 하나가 되도록
 하기 위해서고, 그래서 exe를 남에게 건네도 캐시가 따라가지 않습니다.
 
-`scripts/release.py`가 빌드마다 이를 검사합니다 — 실행 파일과 그 안에 압축된 모든 엔트리를
+`scripts/release.py`가 빌드마다 이를 검사합니다.
+실행 파일과 그 안에 압축된 모든 엔트리를
 풀어서 빌드 기계의 id·경로·`scores.db`의 플레이어 이름을 문자열로 찾고, 하나라도 나오면
 빌드를 중단합니다.
 
