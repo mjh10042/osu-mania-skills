@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 
 from core.aggregate import (DISPLAY_NAME, RADAR_SKILLS, build_pools, contributions,
                             counts_toward_rating, rate_skillsets)
@@ -44,6 +45,58 @@ SERIES = [
     ("mamesosu", "mamesosu", "#ff9f43"),
     ("combined", "combined", "#3ddc97"),
 ]
+
+# The UI family for each language, as (regular, emphasis). Segoe UI has no Hangul or kana,
+# so Tk draws those in a substitute it picks by itself - at the weight that was asked for,
+# out of whatever the PC has installed. Every Semibold label's Korean came out a full bold,
+# larger than the Latin beside it, and on a tester's PC even the regular text was heavy
+# enough to be hard to read. A family that covers the script leaves nothing to substitute.
+# Malgun Gothic has no semibold - the next face up is that same bold - so Korean emphasis
+# stays regular and is carried by colour instead.
+UI_FAMILIES = {
+    "en": ("Segoe UI", "Segoe UI Semibold"),
+    "ko": ("Malgun Gothic", "Malgun Gothic"),
+    "ja": ("Yu Gothic UI", "Yu Gothic UI Semibold"),
+}
+
+_fonts: dict[tuple[int, bool], tkfont.Font] = {}
+
+
+def _family(strong: bool) -> str:
+    regular, emphasis = UI_FAMILIES.get(language(), UI_FAMILIES["en"])
+    return emphasis if strong else regular
+
+
+def ui_font(size: int, strong: bool = False) -> tkfont.Font:
+    """A named font in the current language's family.
+
+    Named rather than a tuple so that a language change can swap the family under every
+    widget, canvas item and ttk style using it at once - see `_retune_fonts`.
+    """
+    key = (size, strong)
+    if key not in _fonts:
+        _fonts[key] = tkfont.Font(family=_family(strong), size=size)
+    return _fonts[key]
+
+
+def _retune_fonts() -> None:
+    for (_, strong), f in _fonts.items():
+        f.configure(family=_family(strong))
+
+
+def _without_focus(layout: list) -> list:
+    """A ttk layout with its focus-ring element taken out, keeping what the ring wrapped."""
+    out = []
+    for element, opts in layout:
+        children = _without_focus(opts.get("children", []))
+        if element.endswith(".focus"):
+            out.extend(children)
+            continue
+        opts = {k: v for k, v in opts.items() if k != "children"}
+        if children:
+            opts["children"] = children
+        out.append((element, opts))
+    return out
 
 
 def _saved_ids() -> tuple[str, str]:
@@ -116,7 +169,7 @@ class RadarChart(tk.Canvas):
                 pts += [cx + r * math.cos(a), cy + r * math.sin(a)]
             self.create_polygon(pts, outline=GRID, fill="", width=1)
             self.create_text(cx + 4, cy - radius * i / rings, text=f"{vmax * i / rings:.0f}",
-                             fill=MUTED, font=("Segoe UI", 7), anchor="w")
+                             fill=MUTED, font=ui_font(7), anchor="w")
 
         for j, skill in enumerate(RADAR_SKILLS):
             a = -math.pi / 2 + 2 * math.pi * j / n
@@ -126,12 +179,12 @@ class RadarChart(tk.Canvas):
                              width=2 if hot else 1)
             lx, ly = cx + (radius + 30) * math.cos(a), cy + (radius + 22) * math.sin(a)
             self.create_text(lx, ly, text=DISPLAY_NAME[skill], fill=TEXT if hot else MUTED,
-                             font=("Segoe UI Semibold" if hot else "Segoe UI", 9))
+                             font=ui_font(9, strong=hot))
             best = max((self.ratings.get(k, {}).get(skill, 0.0) for k in self.visible),
                        default=0.0)
             if best:
                 self.create_text(lx, ly + 14, text=f"{best:.2f}", fill=MUTED,
-                                 font=("Segoe UI", 8))
+                                 font=ui_font(8))
 
         for key, _, colour in SERIES:
             if key not in self.visible or key not in self.ratings:
@@ -200,15 +253,26 @@ class App(tk.Tk):
         st = ttk.Style(self)
         st.theme_use("clam")
         st.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=TEXT,
-                     rowheight=23, borderwidth=0, font=("Segoe UI", 9))
+                     rowheight=23, borderwidth=0, font=ui_font(9))
         st.configure("Treeview.Heading", background=GRID, foreground=MUTED,
-                     borderwidth=0, font=("Segoe UI Semibold", 9))
+                     borderwidth=0, font=ui_font(9, strong=True))
+        # The headings sort nothing, so they must not light up under the pointer as though
+        # clicking them would. That near-white highlight is the theme's own map on ".", and
+        # a state map outranks a plain configure however specific the style, so it has to
+        # be answered with a map here.
+        st.map("Treeview.Heading", background=[("pressed", GRID), ("active", GRID)],
+               foreground=[("pressed", MUTED), ("active", MUTED)])
         st.map("Treeview", background=[("selected", "#32405c")], foreground=[("selected", TEXT)])
         st.configure("TNotebook", background=BG, borderwidth=0)
         st.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, borderwidth=0,
-                     padding=(14, 5), font=("Segoe UI Semibold", 9))
+                     padding=(14, 5), font=ui_font(9, strong=True))
         st.map("TNotebook.Tab", background=[("selected", GRID)],
                foreground=[("selected", TEXT)])
+        # No dotted box around a clicked tab, nor around a clicked row on Tk 8.6, which
+        # still draws one there. The selection already shows by its colour, and the extra
+        # ring only read as a stray box.
+        for name in ("TNotebook.Tab", "Treeview.Item"):
+            st.layout(name, _without_focus(st.layout(name)))
         st.configure("TCombobox", fieldbackground=PANEL, background=GRID, foreground=TEXT,
                      arrowcolor=MUTED, borderwidth=0, padding=3)
         st.map("TCombobox", fieldbackground=[("readonly", PANEL)],
@@ -218,40 +282,41 @@ class App(tk.Tk):
         self.option_add("*TCombobox*Listbox.foreground", TEXT)
         self.option_add("*TCombobox*Listbox.selectBackground", "#32405c")
         self.option_add("*TCombobox*Listbox.selectForeground", TEXT)
+        self.option_add("*TCombobox*Listbox.font", ui_font(9))
 
     def _build_ui(self) -> None:
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=14, pady=(12, 6))
 
-        self.osu_label = tk.Label(top, bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.osu_label = tk.Label(top, bg=BG, fg=MUTED, font=ui_font(9))
         self.osu_label.pack(side="left")
         self.osu_id = tk.Entry(top, width=17, bg=PANEL, fg=TEXT, insertbackground=TEXT,
-                               relief="flat", font=("Segoe UI", 10))
+                               relief="flat", font=ui_font(10))
         self.osu_id.insert(0, _saved_ids()[0])
         self.osu_id.pack(side="left", padx=(6, 16), ipady=4)
 
-        self.mame_label = tk.Label(top, bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.mame_label = tk.Label(top, bg=BG, fg=MUTED, font=ui_font(9))
         self.mame_label.pack(side="left")
         self.mame_id = tk.Entry(top, width=17, bg=PANEL, fg=TEXT, insertbackground=TEXT,
-                                relief="flat", font=("Segoe UI", 10))
+                                relief="flat", font=ui_font(10))
         self.mame_id.insert(0, _saved_ids()[1])
         self.mame_id.pack(side="left", padx=(6, 16), ipady=4)
 
         self.refresh_btn = tk.Button(top, command=self.start_refresh,
                                      bg="#3d5afe", fg="white", relief="flat",
-                                     font=("Segoe UI Semibold", 9), padx=18, pady=5,
+                                     font=ui_font(9, strong=True), padx=18, pady=5,
                                      activebackground="#5872ff", cursor="hand2")
         self.refresh_btn.pack(side="left")
 
-        self.lang_box = ttk.Combobox(top, state="readonly", width=9, font=("Segoe UI", 9),
+        self.lang_box = ttk.Combobox(top, state="readonly", width=9, font=ui_font(9),
                                      values=[name for _, name in LANGUAGES])
         self.lang_box.set(language_name(language()))
         self.lang_box.pack(side="right")
         self.lang_box.bind("<<ComboboxSelected>>", self._on_language_change)
-        self.lang_label = tk.Label(top, bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.lang_label = tk.Label(top, bg=BG, fg=MUTED, font=ui_font(9))
         self.lang_label.pack(side="right", padx=(0, 6))
 
-        self.status = tk.Label(top, text="", bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.status = tk.Label(top, text="", bg=BG, fg=MUTED, font=ui_font(9))
         self.status.pack(side="left", padx=14)
 
         body = tk.Frame(self, bg=BG)
@@ -270,11 +335,11 @@ class App(tk.Tk):
             cb = tk.Checkbutton(legend, text=f"  {label}", variable=var, bg=PANEL,
                                 fg=colour, selectcolor=PANEL, activebackground=PANEL,
                                 activeforeground=colour, relief="flat", bd=0,
-                                font=("Segoe UI Semibold", 9), cursor="hand2",
+                                font=ui_font(9, strong=True), cursor="hand2",
                                 command=lambda k=key: self.radar.toggle(k, self.series_vars[k].get()))
             cb.pack(side="left", padx=(0, 14))
 
-        self.dan_head = tk.Label(left, bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8))
+        self.dan_head = tk.Label(left, bg=PANEL, fg=MUTED, font=ui_font(8, strong=True))
         self.dan_head.pack(anchor="w", padx=12)
         dcols = ("row", "official", "mamesosu", "combined")
         self.dan_tree = ttk.Treeview(left, columns=dcols, show="headings", height=5)
@@ -284,14 +349,14 @@ class App(tk.Tk):
         # Not fill="x": five short rows stretched across the whole panel read as a large
         # empty box, and the width is better spent on the play list.
         self.dan_tree.pack(anchor="w", padx=12, pady=(4, 4))
-        self.dan_tree.tag_configure("overall", font=("Segoe UI Semibold", 9))
+        self.dan_tree.tag_configure("overall", font=ui_font(9, strong=True))
 
-        self.dan_note = tk.Label(left, bg=PANEL, fg=MUTED, font=("Segoe UI", 8),
+        self.dan_note = tk.Label(left, bg=PANEL, fg=MUTED, font=ui_font(8),
                                  justify="left", wraplength=460, anchor="w")
         self.dan_note.pack(anchor="w", padx=12, pady=(0, 2))
 
         # Coverage, not accuracy: says when the number rests on too little evidence.
-        self.dan_cov = tk.Label(left, bg=PANEL, fg="#e8a33d", font=("Segoe UI", 8),
+        self.dan_cov = tk.Label(left, bg=PANEL, fg="#e8a33d", font=ui_font(8),
                                 justify="left", wraplength=460, anchor="w")
         self.dan_cov.pack(anchor="w", padx=12, pady=(0, 6))
         left.bind("<Configure>", lambda e: [w.config(wraplength=max(240, e.width - 30))
@@ -304,11 +369,11 @@ class App(tk.Tk):
         # nothing to auto-detect, and an environment variable is not an answer for
         # somebody who just downloaded the exe.
         self.pick_btn = tk.Button(btns, command=self._pick_osu_folder, bg=GRID, fg=TEXT,
-                                  relief="flat", font=("Segoe UI", 8), padx=10, pady=3,
+                                  relief="flat", font=ui_font(8), padx=10, pady=3,
                                   activebackground="#3a4160", cursor="hand2")
         # Shown only when scores.db holds more than one player name.
         self.acct_btn = tk.Button(btns, command=self._pick_players, bg=GRID, fg=TEXT,
-                                  relief="flat", font=("Segoe UI", 8), padx=10, pady=3,
+                                  relief="flat", font=ui_font(8), padx=10, pady=3,
                                   activebackground="#3a4160", cursor="hand2")
 
         right = tk.Frame(body, bg=BG, width=800)
@@ -318,7 +383,7 @@ class App(tk.Tk):
         # this one is the elastic half, so it has to take what is left rather than first.
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
-        self.skills_head = tk.Label(right, bg=BG, fg=MUTED, font=("Segoe UI Semibold", 8))
+        self.skills_head = tk.Label(right, bg=BG, fg=MUTED, font=ui_font(8, strong=True))
         self.skills_head.pack(anchor="w", pady=(0, 4))
         cols = ("skill", "official", "mamesosu", "combined", "wife", "delta")
         self.skill_tree = ttk.Treeview(right, columns=cols, show="headings", height=9)
@@ -330,7 +395,7 @@ class App(tk.Tk):
         self.skill_tree.bind("<<TreeviewSelect>>", self._on_skill_select)
 
         self.detail_label = tk.Label(right, bg=BG, fg=MUTED,
-                                     font=("Segoe UI Semibold", 8))
+                                     font=ui_font(8, strong=True))
         self.detail_label.pack(anchor="w", pady=(14, 4))
 
         self.tabs = ttk.Notebook(right)
@@ -341,16 +406,16 @@ class App(tk.Tk):
 
         pbar = tk.Frame(plays_tab, bg=BG)
         pbar.pack(fill="x", pady=(4, 6))
-        self.system_label = tk.Label(pbar, bg=BG, fg=MUTED, font=("Segoe UI", 8))
+        self.system_label = tk.Label(pbar, bg=BG, fg=MUTED, font=ui_font(8))
         self.system_label.pack(side="left")
         self.system_box = ttk.Combobox(pbar, state="readonly", width=15,
-                                       font=("Segoe UI", 8))
+                                       font=ui_font(8))
         self.system_box.pack(side="left", padx=(5, 16))
         self.system_box.bind("<<ComboboxSelected>>", self._on_reference_change)
-        self.level_label = tk.Label(pbar, bg=BG, fg=MUTED, font=("Segoe UI", 8))
+        self.level_label = tk.Label(pbar, bg=BG, fg=MUTED, font=ui_font(8))
         self.level_label.pack(side="left")
         self.level_box = ttk.Combobox(pbar, state="readonly", width=6,
-                                      font=("Segoe UI", 8))
+                                      font=ui_font(8))
         self.level_box.pack(side="left", padx=(5, 0))
         self.level_box.bind("<<ComboboxSelected>>", self._on_reference_change)
 
@@ -371,10 +436,10 @@ class App(tk.Tk):
         bar.pack(fill="x", pady=(4, 6))
         self.rec_btn = tk.Button(bar, command=self.start_recommend,
                                  bg="#3d5afe", fg="white", relief="flat",
-                                 font=("Segoe UI Semibold", 9), padx=14, pady=3,
+                                 font=ui_font(9, strong=True), padx=14, pady=3,
                                  activebackground="#5872ff", cursor="hand2")
         self.rec_btn.pack(side="left")
-        self.rec_hint = tk.Label(bar, text="", bg=BG, fg=MUTED, font=("Segoe UI", 8))
+        self.rec_hint = tk.Label(bar, text="", bg=BG, fg=MUTED, font=ui_font(8))
         self.rec_hint.pack(side="left", padx=10)
 
         rcols = ("dan", "msd", "focus", "bpm", "pred", "band", "tag", "status", "map")
@@ -401,6 +466,7 @@ class App(tk.Tk):
 
     def _apply_language(self) -> None:
         """(Re)label every static widget. Trees are refilled because rows carry text too."""
+        _retune_fonts()
         self.title(f'{t("app.title")}   v{VERSION}')
         self.osu_label.config(text=t("field.osu_id"))
         self.mame_label.config(text=t("field.mame_id"))
@@ -562,7 +628,7 @@ class App(tk.Tk):
         win.transient(self)
         win.resizable(False, True)
         tk.Label(win, text=t("dlg.pick_players_hint"), bg=PANEL, fg=MUTED, justify="left",
-                 font=("Segoe UI", 8), wraplength=320).pack(anchor="w", padx=14, pady=(12, 8))
+                 font=ui_font(8), wraplength=320).pack(anchor="w", padx=14, pady=(12, 8))
 
         # A shared PC accumulates names without limit - this machine has twelve, and a
         # club or a PC-bang has dozens. Packed straight into the window they made it taller
@@ -596,7 +662,7 @@ class App(tk.Tk):
             cb = tk.Checkbutton(rows, text=f"  {label}  ({count})", variable=var, bg=PANEL,
                                 fg=TEXT, selectcolor=GRID, activebackground=PANEL,
                                 activeforeground=TEXT, relief="flat", bd=0, anchor="w",
-                                font=("Segoe UI", 9), cursor="hand2")
+                                font=ui_font(9), cursor="hand2")
             cb.pack(fill="x")
             cb.bind("<MouseWheel>", on_wheel)
 
@@ -619,13 +685,13 @@ class App(tk.Tk):
         row = tk.Frame(win, bg=PANEL)
         row.pack(fill="x", padx=14, pady=12)
         tk.Button(row, text=t("btn.save"), command=save, bg=GRID, fg=TEXT, relief="flat",
-                  font=("Segoe UI", 8), padx=12, pady=3, activebackground="#3a4160",
+                  font=ui_font(8), padx=12, pady=3, activebackground="#3a4160",
                   cursor="hand2").pack(side="right")
         # With one owner among forty guests, unticking thirty-nine by hand is the same
         # problem in a different shape.
         for key, value in (("btn.none", False), ("btn.all", True)):
             tk.Button(row, text=t(key), command=lambda v=value: set_all(v), bg=PANEL,
-                      fg=MUTED, relief="flat", font=("Segoe UI", 8), padx=8, pady=3,
+                      fg=MUTED, relief="flat", font=ui_font(8), padx=8, pady=3,
                       activebackground=GRID, activeforeground=TEXT,
                       cursor="hand2").pack(side="left", padx=(0, 6))
 
