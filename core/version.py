@@ -6,6 +6,6 @@ scripts/release.py checks them against this.
 """
 from __future__ import annotations
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 STAGE = "beta"
 LABEL = f"{VERSION} ({STAGE})" if STAGE else VERSION

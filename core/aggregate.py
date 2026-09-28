@@ -131,24 +131,31 @@ def contributions(plays: list[dict], skill: str, limit: int = 40,
             for v, p in scored[:limit]]
 
 
-def build_pools(plays: list[dict], key_count: int = 4) -> dict[str, list[dict]]:
-    """Split rated plays into official / mamesosu / combined pools.
-
-    Maps played on both servers are deduplicated in the combined pool, keeping the
-    better accuracy so one map cannot count twice toward a rating.
-    """
-    pool = [p for p in plays if p.get("msd") and p.get("key_count") == key_count]
-    official = [p for p in pool if p["source"] == "official"]
-    mamesosu = [p for p in pool if p["source"] == "mamesosu"]
-
+def _best_per_chart(plays: list[dict]) -> list[dict]:
+    """One play per chart, the most accurate, so no map counts twice toward a number."""
     # Keyed by md5 where there is one, because a beatmap id is shared by every difficulty
     # of a rate-changer pack: deduplicating on it collapsed nine distinct charts into one.
     best: dict[object, dict] = {}
-    for p in pool:
+    for p in plays:
         key = (p.get("md5") or "").lower() or p["beatmap_id"]
         cur = best.get(key)
         if cur is None or p["accuracy"] > cur["accuracy"]:
             best[key] = p
-    combined = list(best.values())
+    return list(best.values())
 
-    return {"official": official, "mamesosu": mamesosu, "combined": combined}
+
+def build_pools(plays: list[dict], key_count: int = 4) -> dict[str, list[dict]]:
+    """Split rated plays into official / mamesosu / local / combined pools.
+
+    Maps played on more than one source are deduplicated in the combined pool, keeping
+    the better accuracy so one map cannot count twice toward a rating. The local pool is
+    deduplicated the same way: scores.db keeps a best play per rate, so a chart passed
+    both with and without DT would otherwise count twice there too.
+    """
+    pool = [p for p in plays if p.get("msd") and p.get("key_count") == key_count]
+    official = [p for p in pool if p["source"] == "official"]
+    mamesosu = [p for p in pool if p["source"] == "mamesosu"]
+    local = _best_per_chart([p for p in pool if p["source"] == "local"])
+
+    return {"official": official, "mamesosu": mamesosu, "local": local,
+            "combined": _best_per_chart(pool)}

@@ -46,6 +46,11 @@ SERIES = [
     ("combined", "combined", "#3ddc97"),
 ]
 
+# The dan table also breaks this PC's scores.db out as a column of its own. That is where
+# nearly every clear the estimate averages comes from - dan courses are graveyard maps no
+# server's top list holds - so the combined dan is, in practice, mostly the local one.
+DAN_POOLS = ("official", "mamesosu", "local", "combined")
+
 # The UI family for each language, as (regular, emphasis). Segoe UI has no Hangul or kana,
 # so Tk draws those in a substitute it picks by itself - at the weight that was asked for,
 # out of whatever the PC has installed. Every Semibold label's Korean came out a full bold,
@@ -341,10 +346,13 @@ class App(tk.Tk):
 
         self.dan_head = tk.Label(left, bg=PANEL, fg=MUTED, font=ui_font(8, strong=True))
         self.dan_head.pack(anchor="w", padx=12)
-        dcols = ("row", "official", "mamesosu", "combined")
+        dcols = ("row", *DAN_POOLS)
         self.dan_tree = ttk.Treeview(left, columns=dcols, show="headings", height=5)
-        for c, wpx in (("row", 86), ("official", 96), ("mamesosu", 96), ("combined", 104)):
-            self.dan_tree.column(c, width=wpx, stretch=False,
+        # Four columns of "gamma++ (13.33)" have to fit beside the radar at the default
+        # window width, in Malgun Gothic too, which runs a few pixels wider than Segoe UI.
+        # 110 leaves that string two pixels to spare, and the table exactly fills the panel.
+        for c in dcols:
+            self.dan_tree.column(c, width=56 if c == "row" else 110, stretch=False,
                                  anchor="e" if c != "row" else "w")
         # Not fill="x": five short rows stretched across the whole panel read as a large
         # empty box, and the width is better spent on the play list.
@@ -486,7 +494,7 @@ class App(tk.Tk):
             self.tabs.tab(i, text=t(key))
 
         for c, key in (("row", ""), ("official", "osu!"), ("mamesosu", "mame"),
-                       ("combined", t("col.combined"))):
+                       ("local", "local"), ("combined", t("col.combined"))):
             self.dan_tree.heading(c, text=key)
         for c, txt in (("skill", t("col.skillset")), ("official", "osu!"),
                        ("mamesosu", "mame"), ("combined", t("col.combined")),
@@ -548,14 +556,14 @@ class App(tk.Tk):
         def cell(d: dict | None) -> str:
             if not d or d.get("raw") is None:
                 return "-"
-            return f"{d['label']}  ({d['raw']:.2f})"
+            return f"{d['label']} ({d['raw']:.2f})"
 
         self.dan_tree.insert("", "end", tags=("overall",), values=(
-            t("col.overall"), *(cell(self.dans.get(k)) for k, _, _ in SERIES)))
+            t("col.overall"), *(cell(self.dans.get(k)) for k in DAN_POOLS)))
         for s in DAN_SKILLS:
             self.dan_tree.insert("", "end", values=(
                 DAN_SKILL_LABELS[s],
-                *(cell((self.dans.get(k) or {}).get("skills", {}).get(s)) for k, _, _ in SERIES)))
+                *(cell((self.dans.get(k) or {}).get("skills", {}).get(s)) for k in DAN_POOLS)))
         self._fill_coverage()
 
     def _fill_coverage(self) -> None:
